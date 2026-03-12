@@ -23,7 +23,7 @@ export class UserAppAccess {
   user: User;
 
   @ManyToOne(() => Application, (app) => app.userAccess, { eager: true })
-  @JoinColumn({ name: 'app_id' })
+  @JoinColumn({ name: 'application_id' })
   application: Application;
 
   @Column({ default: true })

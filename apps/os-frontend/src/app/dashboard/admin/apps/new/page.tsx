@@ -135,7 +135,7 @@ export default function NewAppPage() {
             <div>
               <label className="block text-sm font-semibold mb-1" style={{ color: '#1a202c' }}>Application URL</label>
               <div className="flex gap-0">
-                <select value={protocol} onChange={(e) => setProtocol(e.target.value as any)}
+                <select value={protocol} onChange={(e) => setProtocol(e.target.value as 'https://' | 'http://')}
                   className="px-3 py-2.5 rounded-l-lg text-sm focus:outline-none shrink-0"
                   style={{ border: '1px solid #E2E8F0', borderRight: 'none', backgroundColor: '#F8FAFC', color: '#475569' }}>
                   <option value="https://">https://</option>

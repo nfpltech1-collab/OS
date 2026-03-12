@@ -33,8 +33,8 @@ export class AuthService {
   async login(dto: LoginDto): Promise<{ token: string; body: AuthResponseDto }> {
     // 1. Find user by email
     const user = await this.usersRepo.findOne({
-      where: { email: dto.email, is_active: true },
-      relations: ['userType', 'clientOrgMappings', 'clientOrgMappings.organization'],
+      where: { email: dto.email, status: 'active' },
+      relations: ['userType', 'organization'],
     });
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
@@ -66,7 +66,7 @@ export class AuthService {
       },
     );
 
-    const org_id = user.clientOrgMappings?.[0]?.organization?.id ?? null;
+    const org_id = user.organization?.id ?? null;
 
     const body: AuthResponseDto = {
       user: {
@@ -131,7 +131,7 @@ export class AuthService {
     // Reload user with all relations needed for the SSO payload
     const fullUser = await this.usersRepo.findOne({
       where: { id: user.id },
-      relations: ['userType', 'department', 'clientOrgMappings', 'clientOrgMappings.organization'],
+      relations: ['userType', 'department', 'organization'],
     });
 
     return this.ssoTokenService.generate(fullUser!, appSlug, access);
@@ -145,13 +145,8 @@ export class AuthService {
 
   async verifyPassword(email: string, password: string, appSlug: string) {
     const user = await this.usersRepo.findOne({
-      where: { email, is_active: true },
-      relations: [
-        'userType',
-        'department',
-        'clientOrgMappings',
-        'clientOrgMappings.organization',
-      ],
+      where: { email, status: 'active' },
+      relations: ['userType', 'department', 'organization'],
     });
 
     if (!user) {
@@ -177,8 +172,8 @@ export class AuthService {
       return { valid: false, reason: 'no_app_access' };
     }
 
-    const org_id = user.clientOrgMappings?.[0]?.organization?.id ?? null;
-    const org_name = user.clientOrgMappings?.[0]?.organization?.name ?? null;
+    const org_id = user.organization?.id ?? null;
+    const org_name = user.organization?.name ?? null;
 
     return {
       valid: true,

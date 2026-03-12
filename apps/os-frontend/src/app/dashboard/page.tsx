@@ -85,7 +85,7 @@ export default function DashboardPage() {
     setLaunchingSlug(app.slug);
     try {
       const sso_token = await getSsoToken(app.slug);
-      window.location.href = `${app.url}/sso?token=${sso_token}`;
+      window.location.assign(`${app.url}/sso?token=${sso_token}`);
     } catch (err) {
       console.error('SSO launch failed', err);
       setLaunchingSlug(null);

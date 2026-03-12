@@ -13,15 +13,17 @@ import { UserType } from '../database/entities/user-type.entity';
 import { Application } from '../database/entities/application.entity';
 import { UserAppAccess } from '../database/entities/user-app-access.entity';
 import { ClientOrganization } from '../database/entities/client-organization.entity';
-import { UserClientOrgMapping } from '../database/entities/user-client-org-mapping.entity';
 import { Department } from '../database/entities/department.entity';
+import { DepartmentDefaultApp } from '../database/entities/department-default-app.entity';
 
 import { CreateUserDto } from './dto/create-user.dto';
+import { BulkCreateUserDto } from './dto/bulk-create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignAppAccessDto } from './dto/assign-app-access.dto';
 import { CreateFromAppDto } from './dto/create-from-app.dto';
 import { AppAccess } from '@nagarkot/shared-types';
 import { WebhookService } from '../common/services/webhook.service';
+import { AuditLogService } from '../audit-logs/audit-log.service';
 
 @Injectable()
 export class UsersService {
@@ -36,23 +38,19 @@ export class UsersService {
     private accessRepo: Repository<UserAppAccess>,
     @InjectRepository(ClientOrganization)
     private clientOrgRepo: Repository<ClientOrganization>,
-    @InjectRepository(UserClientOrgMapping)
-    private clientOrgMappingRepo: Repository<UserClientOrgMapping>,
     @InjectRepository(Department)
     private deptRepo: Repository<Department>,
+    @InjectRepository(DepartmentDefaultApp)
+    private deptDefaultAppRepo: Repository<DepartmentDefaultApp>,
     private webhookService: WebhookService,
+    private auditLog: AuditLogService,
   ) {}
 
   // ─── Get current user + allowed apps ─────────────────────────────
   async getMe(userId: string) {
     const user = await this.usersRepo.findOne({
-      where: { id: userId, is_active: true },
-      relations: [
-        'userType',
-        'department',
-        'clientOrgMappings',
-        'clientOrgMappings.organization',
-      ],
+      where: { id: userId, status: 'active' },
+      relations: ['userType', 'department', 'organization'],
     });
     if (!user) throw new NotFoundException('User not found');
 
@@ -93,8 +91,7 @@ export class UsersService {
         icon_url: a.application.icon_url,
       }));
 
-    const org_id =
-      user.clientOrgMappings?.[0]?.organization?.id ?? null;
+    const org_id = user.organization?.id ?? null;
 
     return {
       user: {
@@ -114,11 +111,7 @@ export class UsersService {
   // ─── List all users ───────────────────────────────────────────────
   async findAll() {
     const users = await this.usersRepo.find({
-      relations: [
-        'userType',
-        'clientOrgMappings',
-        'clientOrgMappings.organization',
-      ],
+      relations: ['userType', 'organization', 'department'],
       order: { created_at: 'DESC' },
     });
 
@@ -129,16 +122,15 @@ export class UsersService {
   async findOne(id: string) {
     const user = await this.usersRepo.findOne({
       where: { id },
-      relations: [
-        'userType',
-        'appAccess',
-        'appAccess.application',
-        'clientOrgMappings',
-        'clientOrgMappings.organization',
-      ],
+      relations: ['userType', 'appAccess', 'appAccess.application', 'organization', 'department'],
     });
     if (!user) throw new NotFoundException('User not found');
     return this.sanitize(user);
+  }
+
+  // ─── Raw entity lookup (used by verify-session — no sanitize, no throw) ──
+  async findRaw(id: string) {
+    return this.usersRepo.findOne({ where: { id } });
   }
 
   // ─── Create user ──────────────────────────────────────────────────
@@ -164,7 +156,7 @@ export class UsersService {
       password_hash,
       name: dto.name,
       userType,
-      is_active: true,
+      status: 'active',
       is_team_lead: dto.is_team_lead ?? false,
     });
 
@@ -176,35 +168,80 @@ export class UsersService {
       user.department = department;
     }
 
-    const saved = await this.usersRepo.save(user);
-
-    // Link client user to organization
+    // Link client user to organization via direct FK
     if (dto.user_type === 'client' && dto.org_id) {
       const org = await this.clientOrgRepo.findOne({
         where: { id: dto.org_id },
       });
       if (!org) throw new NotFoundException('Client organization not found');
-
-      await this.clientOrgMappingRepo.save({
-        user: saved,
-        organization: org,
-      });
+      user.organization = org;
     }
+
+    const saved = await this.usersRepo.save(user);
+
+    this.auditLog.log({
+      actor_id: createdById,
+      action: 'user.created',
+      entity_type: 'user',
+      entity_id: saved.id,
+      after: { email: saved.email, name: saved.name, user_type: dto.user_type },
+    }).catch(() => {});
+
+    // Auto-assign department default apps
+    if (user.department) {
+      const defaultApps = await this.deptDefaultAppRepo.find({
+        where: { department: { id: user.department.id } },
+        relations: ['application'],
+      });
+      for (const defaultApp of defaultApps) {
+        const already = await this.accessRepo.findOne({
+          where: { user: { id: saved.id }, application: { id: defaultApp.application.id } },
+        });
+        if (!already) {
+          await this.accessRepo.save({
+            user: saved,
+            application: defaultApp.application,
+            is_enabled: true,
+            is_app_admin: false,
+            granted_by: createdById,
+          });
+        }
+      }
+    }
+
+    this.webhookService.notifyApps(saved.id, saved.email, 'user.created', {
+      name: saved.name,
+      user_type: userType.slug,
+      department_slug: saved.department?.slug ?? null,
+      org_id: saved.organization?.id ?? null,
+    }).catch(() => {});
 
     return this.sanitize(saved);
   }
 
   // ─── Update user ──────────────────────────────────────────────────
   async update(id: string, dto: UpdateUserDto, requesterId: string) {
-    if (dto.is_active === false && id === requesterId) {
+    if (dto.status === 'disabled' && id === requesterId) {
       throw new BadRequestException('You cannot deactivate your own account');
     }
     const user = await this.usersRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
 
+    const before = { name: user.name, email: user.email, status: user.status, is_team_lead: user.is_team_lead };
+
     if (dto.name !== undefined) user.name = dto.name;
-    if (dto.is_active !== undefined) user.is_active = dto.is_active;
+    if (dto.status !== undefined) user.status = dto.status;
     if (dto.is_team_lead !== undefined) user.is_team_lead = dto.is_team_lead;
+
+    if (dto.email !== undefined && dto.email !== user.email) {
+      const taken = await this.usersRepo.findOne({ where: { email: dto.email } });
+      if (taken) throw new ConflictException('Email already in use');
+      user.email = dto.email;
+    }
+
+    if (dto.password !== undefined) {
+      user.password_hash = await bcrypt.hash(dto.password, 10);
+    }
 
     if (dto.department_id !== undefined) {
       if (dto.department_id === null) {
@@ -220,21 +257,48 @@ export class UsersService {
 
     const saved = await this.usersRepo.save(user);
 
-    // Fire webhook if active status changed
-    if (dto.is_active !== undefined) {
-      const event = dto.is_active ? 'user.reactivated' : 'user.deactivated';
-      // Fire and forget — don't slow down the response
-      this.webhookService.notifyApps(id, saved.email, event).catch((err) =>
-        console.warn('[UsersService] Webhook notification failed:', err),
-      );
+    const after = { name: saved.name, email: saved.email, status: saved.status, is_team_lead: saved.is_team_lead };
+    this.auditLog.log({
+      actor_id: requesterId,
+      action: 'user.updated',
+      entity_type: 'user',
+      entity_id: id,
+      before,
+      after,
+    }).catch(() => {});
+    if (dto.status !== undefined && dto.status !== before.status) {
+      this.auditLog.log({
+        actor_id: requesterId,
+        action: 'user.status.changed',
+        entity_type: 'user',
+        entity_id: id,
+        before: { status: before.status },
+        after: { status: saved.status },
+      }).catch(() => {});
     }
 
-    return this.sanitize(
-      (await this.usersRepo.findOne({
-        where: { id: saved.id },
-        relations: ['userType', 'department', 'clientOrgMappings', 'clientOrgMappings.organization'],
-      }))!
-    );
+    // Re-fetch with full relations for webhook payload and return value
+    const full = (await this.usersRepo.findOne({
+      where: { id: saved.id },
+      relations: ['userType', 'department', 'organization'],
+    }))!;
+
+    // Fire webhook if status changed (lifecycle events)
+    if (dto.status !== undefined) {
+      const event = dto.status === 'active' ? 'user.reactivated' : 'user.deactivated';
+      this.webhookService.notifyApps(id, full.email, event).catch(() => {});
+    }
+
+    // Always fire user.updated so apps can sync name/department/org changes
+    this.webhookService.notifyApps(id, full.email, 'user.updated', {
+      name: full.name,
+      user_type: full.userType?.slug ?? '',
+      department_slug: full.department?.slug ?? null,
+      org_id: full.organization?.id ?? null,
+      status: full.status,
+    }).catch(() => {});
+
+    return this.sanitize(full);
   }
 
   // ─── Change own password ──────────────────────────────────────────
@@ -293,6 +357,25 @@ export class UsersService {
       });
     }
 
+    this.auditLog.log({
+      actor_id: grantedById,
+      action: dto.is_enabled ? 'app_access.granted' : 'app_access.revoked',
+      entity_type: 'user',
+      entity_id: userId,
+      after: { app_slug: dto.app_slug, is_enabled: dto.is_enabled },
+    }).catch(() => {});
+
+    // Notify the specific app when its access is revoked
+    if (!dto.is_enabled) {
+      this.webhookService.notifyApps(
+        userId,
+        user.email,
+        'user.app_access_revoked',
+        { app_slug: dto.app_slug },
+        dto.app_slug,
+      ).catch(() => {});
+    }
+
     return {
       message: `Access to ${app.name} ${dto.is_enabled ? 'granted' : 'revoked'}`,
     };
@@ -333,9 +416,17 @@ export class UsersService {
 
     // Remove FK-constrained child rows before deleting the user
     await this.accessRepo.delete({ user: { id } });
-    await this.clientOrgMappingRepo.delete({ user: { id } });
 
     await this.usersRepo.remove(user);
+
+    this.auditLog.log({
+      actor_id: requesterId,
+      action: 'user.deleted',
+      entity_type: 'user',
+      entity_id: id,
+      before: { email: user.email, name: user.name },
+    }).catch(() => {});
+
     return { message: 'User deleted' };
   }
 
@@ -349,7 +440,7 @@ export class UsersService {
   async getProfile(id: string) {
     const user = await this.usersRepo.findOne({
       where: { id },
-      relations: ['userType', 'department', 'clientOrgMappings', 'clientOrgMappings.organization'],
+      relations: ['userType', 'department', 'organization'],
     });
     if (!user) throw new NotFoundException('User not found');
     return {
@@ -357,12 +448,12 @@ export class UsersService {
       email: user.email,
       name: user.name,
       user_type: user.userType.slug,
-      is_active: user.is_active,
+      status: user.status,
       department_id: user.department?.id ?? null,
       department_slug: user.department?.slug ?? null,
       department_name: user.department?.name ?? null,
-      org_id: user.clientOrgMappings?.[0]?.organization?.id ?? null,
-      org_name: user.clientOrgMappings?.[0]?.organization?.name ?? null,
+      org_id: user.organization?.id ?? null,
+      org_name: user.organization?.name ?? null,
     };
   }
 
@@ -386,7 +477,7 @@ export class UsersService {
         password_hash,
         userType: employeeType!,
         department: department ?? undefined,
-        is_active: true,
+        status: 'active',
       });
       user = await this.usersRepo.save(user);
     }
@@ -413,11 +504,24 @@ export class UsersService {
 
   // ─── List active departments ──────────────────────────────────────
   async getDepartments() {
-    return this.deptRepo.find({ where: { is_active: true } });
+    const depts = await this.deptRepo.find({
+      where: { status: 'active' },
+      relations: ['defaultApps', 'defaultApps.application'],
+    });
+    return depts.map((d) => ({
+      id: d.id,
+      slug: d.slug,
+      name: d.name,
+      default_apps: d.defaultApps?.map((da) => ({
+        id: da.application.id,
+        slug: da.application.slug,
+        name: da.application.name,
+      })) ?? [],
+    }));
   }
 
   // ─── Create department ────────────────────────────────────────────
-  async createDepartment(name: string) {
+  async createDepartment(name: string, actorId: string) {
     const slug = name
       .toLowerCase()
       .trim()
@@ -428,33 +532,140 @@ export class UsersService {
       throw new ConflictException(
         'A department with this name already exists',
       );
-    return this.deptRepo.save(
-      this.deptRepo.create({ name: name.trim(), slug, is_active: true, default_app_slugs: [] }),
+    const saved = await this.deptRepo.save(
+      this.deptRepo.create({ name: name.trim(), slug, status: 'active' }),
     );
+
+    this.auditLog.log({
+      actor_id: actorId,
+      action: 'department.created',
+      entity_type: 'department',
+      entity_id: saved.id,
+      after: { name: saved.name, slug: saved.slug },
+    }).catch(() => {});
+
+    this.webhookService.broadcastDepartment('department.created', {
+      department_id: saved.id,
+      department_slug: saved.slug,
+      department_name: saved.name,
+    }).catch(() => {});
+
+    return saved;
   }
 
   // ─── Update department ────────────────────────────────────────────
-  async updateDepartment(id: string, name: string) {
+  async updateDepartment(id: string, name: string, actorId: string) {
     const dept = await this.deptRepo.findOne({ where: { id } });
     if (!dept) throw new NotFoundException('Department not found');
+    const oldName = dept.name;
+    const oldSlug = dept.slug;
     dept.name = name.trim();
-    return this.deptRepo.save(dept);
+    dept.slug = name.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const slugConflict = await this.deptRepo.findOne({ where: { slug: dept.slug } });
+    if (slugConflict && slugConflict.id !== id) {
+      throw new ConflictException('A department with this name already exists');
+    }
+    const saved = await this.deptRepo.save(dept);
+
+    this.auditLog.log({
+      actor_id: actorId,
+      action: 'department.updated',
+      entity_type: 'department',
+      entity_id: id,
+      before: { name: oldName },
+      after: { name: saved.name },
+    }).catch(() => {});
+
+    this.webhookService.broadcastDepartment('department.updated', {
+      department_id: id,
+      department_slug: oldSlug,
+      department_name: oldName,
+      new_slug: saved.slug,
+      new_name: saved.name,
+    }).catch(() => {});
+
+    return saved;
   }
 
   // ─── Delete department ────────────────────────────────────────────
-  async deleteDepartment(id: string) {
-    const dept = await this.deptRepo.findOne({
-      where: { id },
-      relations: ['users'],
-    });
+  async deleteDepartment(id: string, actorId: string) {
+    const dept = await this.deptRepo.findOne({ where: { id } });
     if (!dept) throw new NotFoundException('Department not found');
-    if (dept.users && dept.users.length > 0) {
-      throw new BadRequestException(
-        'Cannot delete a department that has users assigned. Reassign users first.',
-      );
-    }
-    await this.deptRepo.remove(dept);
+    dept.status = 'deleted';
+    await this.deptRepo.save(dept);
+
+    this.auditLog.log({
+      actor_id: actorId,
+      action: 'department.deleted',
+      entity_type: 'department',
+      entity_id: id,
+      before: { name: dept.name, slug: dept.slug },
+    }).catch(() => {});
+
+    this.webhookService.broadcastDepartment('department.deleted', {
+      department_id: id,
+      department_slug: dept.slug,
+    }).catch(() => {});
+
     return { message: 'Department deleted' };
+  }
+
+  // ─── Add default app to department ───────────────────────────────
+  async addDepartmentDefaultApp(departmentId: string, appId: string, actorId: string) {
+    const dept = await this.deptRepo.findOne({ where: { id: departmentId } });
+    if (!dept) throw new NotFoundException('Department not found');
+
+    const app = await this.appRepo.findOne({ where: { id: appId } });
+    if (!app) throw new NotFoundException('Application not found');
+
+    const existing = await this.deptDefaultAppRepo.findOne({
+      where: { department: { id: departmentId }, application: { id: appId } },
+    });
+    if (!existing) {
+      await this.deptDefaultAppRepo.save({ department: dept, application: app });
+      this.auditLog.log({
+        actor_id: actorId,
+        action: 'department.default_app.added',
+        entity_type: 'department',
+        entity_id: departmentId,
+        after: { app_id: appId, app_slug: app.slug },
+      }).catch(() => {});
+    }
+
+    return this.getDepartmentDefaultApps(departmentId);
+  }
+
+  // ─── Remove default app from department ──────────────────────────
+  async removeDepartmentDefaultApp(departmentId: string, appId: string, actorId: string) {
+    const row = await this.deptDefaultAppRepo.findOne({
+      where: { department: { id: departmentId }, application: { id: appId } },
+      relations: ['application'],
+    });
+    if (!row) throw new NotFoundException('Default app mapping not found');
+    await this.deptDefaultAppRepo.remove(row);
+
+    this.auditLog.log({
+      actor_id: actorId,
+      action: 'department.default_app.removed',
+      entity_type: 'department',
+      entity_id: departmentId,
+      before: { app_id: appId, app_slug: row.application?.slug },
+    }).catch(() => {});
+
+    return this.getDepartmentDefaultApps(departmentId);
+  }
+
+  // ─── Get default apps for department ─────────────────────────────
+  async getDepartmentDefaultApps(departmentId: string) {
+    const rows = await this.deptDefaultAppRepo.find({
+      where: { department: { id: departmentId } },
+      relations: ['application'],
+    });
+    return rows.map((r) => ({
+      id: r.application.id,
+      slug: r.application.slug,
+      name: r.application.name,
+    }));
   }
 
   // ─── List active applications ─────────────────────────────────
@@ -464,4 +675,107 @@ export class UsersService {
       select: ['id', 'slug', 'name', 'url', 'icon_url'],
       order: { name: 'ASC' },
     });
-  }}
+  }
+
+  // ─── Bulk create users ───────────────────────────────────────────
+  async createBulk(dto: BulkCreateUserDto, createdById: string) {
+    const results: { email: string; id: string }[] = [];
+    const errors: { email: string; error: string }[] = [];
+
+    const userTypes = await this.userTypeRepo.find();
+    const typeMap = new Map(userTypes.map((t) => [t.slug, t]));
+
+    for (const entry of dto.users) {
+      try {
+        const existing = await this.usersRepo.findOne({
+          where: { email: entry.email },
+        });
+        if (existing) {
+          errors.push({ email: entry.email, error: 'Email already in use' });
+          continue;
+        }
+
+        const userType = typeMap.get(entry.user_type);
+        if (!userType) {
+          errors.push({ email: entry.email, error: 'Invalid user type' });
+          continue;
+        }
+
+        const password_hash = await bcrypt.hash(entry.password, 10);
+        const user = this.usersRepo.create({
+          email: entry.email,
+          password_hash,
+          name: entry.name,
+          userType,
+          status: 'active',
+          is_team_lead: entry.is_team_lead ?? false,
+        });
+
+        if (entry.department_id) {
+          user.department = await this.deptRepo.findOne({
+            where: { id: entry.department_id },
+          });
+        }
+
+        if (entry.user_type === 'client' && entry.org_id) {
+          user.organization = await this.clientOrgRepo.findOne({
+            where: { id: entry.org_id },
+          });
+        }
+
+        const saved = await this.usersRepo.save(user);
+
+        // Handle explicit app access from the bulk upload
+        const appSlugs = new Set(entry.app_slugs ?? []);
+        const adminAppSlugs = new Set(entry.admin_app_slugs ?? []);
+        const allAppSlugs = new Set([...appSlugs, ...adminAppSlugs]);
+
+        for (const slug of allAppSlugs) {
+          const app = await this.appRepo.findOne({
+            where: { slug, is_active: true },
+          });
+          if (app) {
+            await this.accessRepo.save({
+              user: saved,
+              application: app,
+              is_enabled: true,
+              is_app_admin: adminAppSlugs.has(slug),
+              granted_by: createdById,
+            });
+          }
+        }
+
+        // Fire audit log
+        this.auditLog
+          .log({
+            actor_id: createdById,
+            action: 'user.created',
+            entity_type: 'user',
+            entity_id: saved.id,
+            after: {
+              email: saved.email,
+              name: saved.name,
+              user_type: entry.user_type,
+            },
+          })
+          .catch(() => {});
+
+        // Fire webhook
+        this.webhookService
+          .notifyApps(saved.id, saved.email, 'user.created', {
+            name: saved.name,
+            user_type: userType.slug,
+            department_slug: saved.department?.slug ?? null,
+            org_id: saved.organization?.id ?? null,
+          })
+          .catch(() => {});
+
+        results.push({ email: saved.email, id: saved.id });
+      } catch (err: any) {
+        errors.push({ email: entry.email, error: err.message });
+      }
+    }
+
+    return { results, errors };
+  }
+}

@@ -1,74 +1,32 @@
+# OS Deployment/Env Configuration
 
-```
-OS
-├─ apps
-│  ├─ os-backend
-│  │  ├─ .prettierrc
-│  │  ├─ eslint.config.mjs
-│  │  ├─ nest-cli.json
-│  │  ├─ package.json
-│  │  ├─ README.md
-│  │  ├─ src
-│  │  │  ├─ app.controller.spec.ts
-│  │  │  ├─ app.controller.ts
-│  │  │  ├─ app.module.ts
-│  │  │  ├─ app.service.ts
-│  │  │  ├─ auth
-│  │  │  │  ├─ auth.controller.ts
-│  │  │  │  ├─ auth.module.ts
-│  │  │  │  ├─ auth.service.ts
-│  │  │  │  ├─ dto
-│  │  │  │  │  ├─ auth-response.dto.ts
-│  │  │  │  │  └─ login.dto.ts
-│  │  │  │  ├─ jwt-auth.guard.ts
-│  │  │  │  ├─ jwt.strategy.ts
-│  │  │  │  └─ sso-token.service.ts
-│  │  │  ├─ database
-│  │  │  │  ├─ entities
-│  │  │  │  │  ├─ application.entity.ts
-│  │  │  │  │  ├─ client-organization.entity.ts
-│  │  │  │  │  ├─ sso-token.entity.ts
-│  │  │  │  │  ├─ user-app-access.entity.ts
-│  │  │  │  │  ├─ user-client-org-mapping.entity.ts
-│  │  │  │  │  ├─ user-type.entity.ts
-│  │  │  │  │  └─ user.entity.ts
-│  │  │  │  └─ seed.ts
-│  │  │  └─ main.ts
-│  │  ├─ test
-│  │  │  ├─ app.e2e-spec.ts
-│  │  │  └─ jest-e2e.json
-│  │  ├─ tsconfig.build.json
-│  │  └─ tsconfig.json
-│  └─ os-frontend
-│     ├─ eslint.config.mjs
-│     ├─ next-env.d.ts
-│     ├─ next.config.ts
-│     ├─ package.json
-│     ├─ postcss.config.mjs
-│     ├─ public
-│     │  ├─ file.svg
-│     │  ├─ globe.svg
-│     │  ├─ next.svg
-│     │  ├─ vercel.svg
-│     │  └─ window.svg
-│     ├─ README.md
-│     ├─ src
-│     │  └─ app
-│     │     ├─ favicon.ico
-│     │     ├─ globals.css
-│     │     ├─ layout.tsx
-│     │     └─ page.tsx
-│     └─ tsconfig.json
-├─ package-lock.json
-├─ package.json
-├─ packages
-│  └─ shared-types
-│     ├─ package.json
-│     └─ src
-│        ├─ app.types.ts
-│        ├─ index.ts
-│        ├─ sso.types.ts
-│        └─ user.types.ts
-└─ README.md
+The OS codebase now uses environment variables for runtime URLs and network settings, with localhost-safe defaults for development.
 
-```
+## Frontend (`apps/os-frontend`)
+
+1. Copy `.env.example` to `.env.local` (or `.env`).
+2. Set:
+   - `OS_BACKEND_URL` (default local: `http://localhost:3001`)
+   - Optional `NEXT_PUBLIC_OS_BACKEND_URL` fallback (same value as `OS_BACKEND_URL`)
+
+`next.config.ts` uses `OS_BACKEND_URL` for `/api/*` rewrites.
+
+## Backend (`apps/os-backend`)
+
+1. Copy `.env.example` to `.env`.
+2. Configure:
+   - Runtime: `PORT`, `HOST`, `PUBLIC_BASE_URL`, `CORS_ORIGINS`
+   - Database: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`
+   - Auth/SSO: `OS_SESSION_SECRET`, `OS_SESSION_EXPIRES_IN`, `INTERNAL_API_KEY`, `WEBHOOK_SECRET`, `OS_JWT_PRIVATE_KEY`, `OS_JWT_PUBLIC_KEY`
+
+The backend now reads CORS/listen settings from env while preserving localhost defaults for local development.
+
+## Seed/Data Scripts
+
+The backend seed script now supports env overrides for app URLs and admin credentials:
+
+- `APP_SUPERFREIGHT_*`, `APP_TEZ_*`, `APP_TRAININGS_*`, `APP_SHAKTI_*`
+- `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_NAME`
+- `SYNC_TRAININGS_URL`, `SYNC_OS_DASHBOARD_URL` for `sync_ips.js`
+
+If these are not set, local defaults are used.

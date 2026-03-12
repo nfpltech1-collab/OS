@@ -2,6 +2,9 @@ import {
   Entity, PrimaryGeneratedColumn, Column, OneToMany,
 } from 'typeorm';
 import { User } from './user.entity';
+import { DepartmentDefaultApp } from './department-default-app.entity';
+
+export type DepartmentStatus = 'active' | 'deleted';
 
 @Entity('departments')
 export class Department {
@@ -14,12 +17,15 @@ export class Department {
   @Column()
   name: string; // e.g. 'Operations'
 
-  @Column('simple-array', { nullable: true })
-  default_app_slugs: string[]; // e.g. ['superfreight', 'tez']
-
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: 'active' })
+  status: DepartmentStatus;
+
   @OneToMany(() => User, (user) => user.department)
   users: User[];
+
+  @OneToMany(() => DepartmentDefaultApp, (d) => d.department)
+  defaultApps: DepartmentDefaultApp[];
 }

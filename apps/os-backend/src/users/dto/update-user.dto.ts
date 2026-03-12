@@ -1,4 +1,4 @@
-import { IsString, IsBoolean, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsBoolean, IsOptional, IsUUID, IsIn, IsEmail, MinLength } from 'class-validator';
 
 export class UpdateUserDto {
   @IsOptional()
@@ -6,8 +6,17 @@ export class UpdateUserDto {
   name?: string;
 
   @IsOptional()
-  @IsBoolean()
-  is_active?: boolean;
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
+
+  @IsOptional()
+  @IsIn(['active', 'disabled', 'deleted'])
+  status?: 'active' | 'disabled' | 'deleted';
 
   @IsOptional()
   @IsUUID()

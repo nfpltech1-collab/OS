@@ -6,6 +6,7 @@ import {
   JoinColumn,
   CreateDateColumn,
   Unique,
+  Index,
 } from 'typeorm';
 import { User } from './user.entity';
 import { Application } from './application.entity';
@@ -16,6 +17,7 @@ export class UserAppAccess {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Index()
   @ManyToOne(() => User, (user) => user.appAccess)
   @JoinColumn({ name: 'user_id' })
   user: User;

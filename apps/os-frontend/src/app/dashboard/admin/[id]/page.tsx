@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { getUser, getUserAppAccess, setAppAccess, setAppAdmin, getApplications } from '@/lib/api';
+import { getUser, getUserAppAccess, setAppAccess, setAppAdmin, getApplications, updateUser } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 
@@ -18,16 +18,22 @@ export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user: currentUser } = useAuth();
   const isSelf = currentUser?.id === id;
-  const [user, setUser] = useState<{ name: string; email: string; is_active: boolean; userType: { label: string; slug: string } } | null>(null);
+  const [user, setUser] = useState<{ name: string; email: string; status: 'active' | 'disabled' | 'deleted'; userType: { label: string; slug: string }; is_team_lead: boolean } | null>(null);
   const [access, setAccess] = useState<AccessRecord[]>([]);
   const [allApps, setAllApps] = useState<{ slug: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
 
   useEffect(() => {
     Promise.all([getUser(id), getUserAppAccess(id), getApplications()])
       .then(([u, a, apps]) => {
         setUser(u);
+        setEditEmail(u.email);
         setAccess(a);
         setAllApps(apps);
       })
@@ -81,6 +87,38 @@ export default function UserDetailPage() {
     }
   }
 
+  async function toggleTeamLead() {
+    if (!user) return;
+    const prev = user.is_team_lead;
+    setUser((u) => u ? { ...u, is_team_lead: !u.is_team_lead } : u);
+    try {
+      await updateUser(id, { is_team_lead: !prev });
+    } catch {
+      setUser((u) => u ? { ...u, is_team_lead: prev } : u);
+    }
+  }
+
+  async function saveCredentials() {
+    if (!editEmail.trim()) { setEditError('Email cannot be empty.'); return; }
+    if (editPassword && editPassword.length < 8) { setEditError('Password must be at least 8 characters.'); return; }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const payload: { email?: string; password?: string } = {};
+      if (editEmail !== user?.email) payload.email = editEmail.trim();
+      if (editPassword) payload.password = editPassword;
+      if (!payload.email && !payload.password) { setEditOpen(false); setEditSaving(false); return; }
+      const updated = await updateUser(id, payload);
+      setUser((u) => u ? { ...u, email: updated.email } : u);
+      setEditPassword('');
+      setEditOpen(false);
+    } catch (err: any) {
+      setEditError(err?.response?.data?.message ?? 'Failed to save changes.');
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
   function isEnabled(slug: string) {
     const record = access.find((a) => a.app_slug === slug);
     return record?.is_enabled ?? false;
@@ -114,20 +152,103 @@ export default function UserDetailPage() {
       <main className="px-8 py-8 max-w-lg mx-auto">
         {/* User info */}
         <div className="bg-white rounded-xl p-5 mb-6" style={{ border: '1px solid #e2e8f0' }}>
-          <p className="font-semibold" style={{ color: '#1a202c' }}>{user?.name}</p>
-          <p className="text-sm mt-0.5" style={{ color: '#718096' }}>{user?.email}</p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-semibold" style={{ color: '#1a202c' }}>{user?.name}</p>
+              <p className="text-sm mt-0.5 truncate" style={{ color: '#718096' }}>{user?.email}</p>
+            </div>
+            {!isSelf && (
+              <button
+                onClick={() => { setEditOpen(o => !o); setEditError(''); setEditPassword(''); setEditEmail(user?.email ?? ''); }}
+                className="text-xs px-2.5 py-1 rounded-lg shrink-0"
+                style={{ border: '1px solid #E2E8F0', color: '#1B3A6C', backgroundColor: '#fff', cursor: 'pointer' }}
+              >
+                {editOpen ? 'Cancel' : 'Edit'}
+              </button>
+            )}
+          </div>
+
+          {/* Inline credential editor */}
+          {editOpen && (
+            <div className="mt-4 pt-4" style={{ borderTop: '1px solid #F1F5F9' }}>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium block mb-1" style={{ color: '#64748B' }}>Email</label>
+                  <input
+                    type="email"
+                    value={editEmail}
+                    onChange={e => setEditEmail(e.target.value)}
+                    className="w-full text-sm px-3 py-2 rounded-lg focus:outline-none"
+                    style={{ border: '1px solid #E2E8F0', color: '#1a202c', backgroundColor: '#fff' }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium block mb-1" style={{ color: '#64748B' }}>New Password <span style={{ color: '#94A3B8', fontWeight: 400 }}>(leave blank to keep current)</span></label>
+                  <input
+                    type="password"
+                    value={editPassword}
+                    onChange={e => setEditPassword(e.target.value)}
+                    placeholder="Min. 8 characters"
+                    className="w-full text-sm px-3 py-2 rounded-lg focus:outline-none"
+                    style={{ border: '1px solid #E2E8F0', color: '#1a202c', backgroundColor: '#fff' }}
+                  />
+                </div>
+                {editError && <p className="text-xs" style={{ color: '#EF4444' }}>{editError}</p>}
+                <button
+                  onClick={saveCredentials}
+                  disabled={editSaving}
+                  className="w-full text-sm py-2 rounded-lg font-medium text-white"
+                  style={{ backgroundColor: editSaving ? '#94A3B8' : '#1B3A6C', cursor: editSaving ? 'not-allowed' : 'pointer', border: 'none' }}
+                >
+                  {editSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 mt-3">
             <span className="px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700 font-medium">
               {user?.userType?.label}
             </span>
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-              user?.is_active
+              user?.status === 'active'
                 ? 'bg-green-100 text-green-700'
                 : 'bg-red-100 text-red-700'
             }`}>
-              {user?.is_active ? 'Active' : 'Inactive'}
+              {user?.status === 'active' ? 'Active' : 'Inactive'}
             </span>
           </div>
+          {user?.userType?.slug !== 'admin' && (
+            <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: '1px solid #F1F5F9' }}>
+              <span className="text-xs font-medium" style={{ color: '#64748B' }}>Team Lead</span>
+              <button
+                onClick={toggleTeamLead}
+                className="relative rounded-full transition-colors duration-200 cursor-pointer"
+                style={{
+                  width: 36,
+                  height: 20,
+                  backgroundColor: user?.is_team_lead ? '#1B3A6C' : '#CBD5E1',
+                  border: 'none',
+                  padding: 0,
+                  flexShrink: 0,
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    left: 2,
+                    width: 16,
+                    height: 16,
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transition: 'transform 0.2s',
+                    transform: user?.is_team_lead ? 'translateX(16px)' : 'translateX(0)',
+                  }}
+                />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* App access toggles */}

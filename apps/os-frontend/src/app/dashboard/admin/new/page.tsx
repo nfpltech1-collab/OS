@@ -97,10 +97,46 @@ export default function NewUserPage() {
     }));
   }
 
-  function handleStep1Submit(e: React.FormEvent) {
+  async function handleStep1Submit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
-    setStep(2);
+    setLoading(true);
+
+    try {
+      // Validate email uniqueness
+      const users = await api.get('/users').then(res => res.data);
+      const isDuplicate = users.some((u: { email: string }) => u.email.toLowerCase() === form.email.toLowerCase());
+      if (isDuplicate) {
+        setError('Email already in use');
+        setLoading(false);
+        return;
+      }
+
+      // Pre-select Default Apps for the department
+      if (form.user_type !== 'client' && form.department_id) {
+        const defaultApps = await api.get(`/users/departments/${form.department_id}/default-apps`).then(res => res.data);
+        const defaultSlugs = new Set<string>(defaultApps.map((a: { slug: string }) => a.slug));
+        
+        setAppSelections(prev => {
+          const next = { ...prev };
+          defaultSlugs.forEach(slug => {
+            if (!next[slug]) {
+              next[slug] = { enabled: true, isAppAdmin: false };
+            } else {
+              next[slug] = { ...next[slug], enabled: true };
+            }
+          });
+          return next;
+        });
+      }
+
+      setStep(2);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } } };
+      setError(axiosErr?.response?.data?.message || 'Failed to validate user');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleFinish() {
@@ -328,20 +364,20 @@ export default function NewUserPage() {
                     </div>
                   </div>
                 </div>
-
-                <div className="flex flex-col-reverse sm:flex-row gap-3">
-                  <button type="button" onClick={() => router.back()}
-                    className="w-full sm:w-auto sm:min-w-36 py-2.5 px-5 rounded-lg text-sm font-medium border"
+                {error && <p className="text-red-600 text-sm mb-3 font-medium mt-4">{error}</p>}
+                <div className="flex flex-col-reverse sm:flex-row gap-3 mt-6">
+                  <button type="button" onClick={() => router.back()} disabled={loading}
+                    className="w-full sm:w-auto sm:min-w-36 py-2.5 px-5 rounded-lg text-sm font-medium border disabled:opacity-50"
                     style={{ borderColor: '#E2E8F0', color: '#475569' }}
                   >
                     Cancel
                   </button>
-                  <button type="submit"
-                    className="w-full sm:w-auto sm:min-w-56 flex items-center justify-center gap-2 py-3 px-5 rounded-lg text-white text-sm font-semibold"
+                  <button type="submit" disabled={loading}
+                    className="w-full sm:w-auto sm:min-w-56 flex items-center justify-center gap-2 py-3 px-5 rounded-lg text-white text-sm font-semibold disabled:opacity-50"
                     style={{ backgroundColor: '#1B3A6C' }}
                   >
-                    Next: App Assignment
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                    {loading ? 'Validating...' : 'Next: App Assignment'}
+                    {!loading && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>}
                   </button>
                 </div>
               </form>

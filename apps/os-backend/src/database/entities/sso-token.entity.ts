@@ -3,6 +3,7 @@ import {
   PrimaryColumn,
   Column,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('sso_tokens')
@@ -11,6 +12,7 @@ export class SsoToken {
   @PrimaryColumn('uuid')
   token_id: string;
 
+  @Index()
   @Column()
   user_id: string;
 
@@ -20,6 +22,7 @@ export class SsoToken {
   @Column({ default: false })
   used: boolean;
 
+  @Index()
   @Column()
   expires_at: Date;
 

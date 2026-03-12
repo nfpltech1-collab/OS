@@ -1,9 +1,10 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { SsoToken } from '../database/entities/sso-token.entity';
 import { User } from '../database/entities/user.entity';
 import { UserAppAccess } from '../database/entities/user-app-access.entity';
@@ -11,6 +12,8 @@ import { SsoPayload } from '@nagarkot/shared-types';
 
 @Injectable()
 export class SsoTokenService {
+  private readonly logger = new Logger(SsoTokenService.name);
+
   constructor(
     private jwtService: JwtService,
     private config: ConfigService,
@@ -30,8 +33,8 @@ export class SsoTokenService {
       expires_at: new Date(Date.now() + 60_000), // 60 seconds
     });
 
-    const org_id = user.clientOrgMappings?.[0]?.organization?.id ?? null;
-    const org_name = user.clientOrgMappings?.[0]?.organization?.name ?? null;
+    const org_id = user.organization?.id ?? null;
+    const org_name = user.organization?.name ?? null;
 
     const payload: Omit<SsoPayload, 'iat' | 'exp'> = {
       token_id,
@@ -65,5 +68,15 @@ export class SsoTokenService {
     if (record.expires_at < new Date())
       throw new UnauthorizedException('SSO token expired');
     await this.ssoTokenRepo.update({ token_id }, { used: true });
+  }
+
+  // ─── Hourly cleanup of tokens older than 24 hours ─────────────────
+  @Cron(CronExpression.EVERY_HOUR)
+  async cleanupExpiredTokens(): Promise<void> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const result = await this.ssoTokenRepo.delete({ expires_at: LessThan(cutoff) });
+    if ((result.affected ?? 0) > 0) {
+      this.logger.log(`Cleaned up ${result.affected} expired SSO token(s)`);
+    }
   }
 }

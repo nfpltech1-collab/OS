@@ -5,6 +5,14 @@ import { join } from 'path';
 import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
 
+function parseCsv(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -24,13 +32,22 @@ async function bootstrap() {
   );
 
   // Allow os-frontend to send cookies
+  const configuredCorsOrigins = parseCsv(process.env.CORS_ORIGINS);
+  const corsOrigins = configuredCorsOrigins.length
+    ? configuredCorsOrigins
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://192.168.1.23:3000'],
+    origin: corsOrigins,
     credentials: true,
   });
 
-  await app.listen(process.env.PORT ?? 3001, '0.0.0.0');
-  console.log('OS Backend running on http://0.0.0.0:3001');
+  const port = Number(process.env.PORT ?? 3001);
+  const host = process.env.HOST ?? '0.0.0.0';
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL ?? `http://localhost:${port}`;
+
+  await app.listen(port, host);
+  console.log(`OS Backend running on ${publicBaseUrl} (bound to ${host}:${port})`);
 }
 
 bootstrap();

@@ -2,18 +2,34 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getUsers, updateUser, deleteUser } from '@/lib/api';
+import { getUsers, updateUser, deleteUser, getApplications, getDepartments } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import AdminLayout from '@/components/AdminLayout';
+import BulkImportModal from '@/components/BulkImportModal';
 
 interface User {
   id: string;
   email: string;
   name: string;
-  is_active: boolean;
+  status: 'active' | 'disabled' | 'deleted';
   created_at: string;
   userType: { slug: string; label: string };
+  department: { id: string; name: string } | null;
+}
+
+interface App {
+  id: string;
+  slug: string;
+  name: string;
+  icon_url: string | null;
+}
+
+interface Department {
+  id: string;
+  slug: string;
+  name: string;
+  default_apps: { id: string; slug: string; name: string }[];
 }
 
 const TYPE_STYLE: Record<string, { bg: string; color: string }> = {
@@ -28,20 +44,32 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [apps, setApps] = useState<App[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
 
   useEffect(() => {
     if (user?.user_type !== 'admin') { router.push('/dashboard'); return; }
-    getUsers().then(setUsers).finally(() => setLoading(false));
+    Promise.all([
+      getUsers(),
+      getApplications(),
+      getDepartments(),
+    ]).then(([u, a, d]) => {
+      setUsers(u);
+      setApps(a);
+      setDepartments(d);
+    }).finally(() => setLoading(false));
   }, [user]);
 
   async function toggleActive(u: User) {
     if (u.id === user?.id) return;
     const prev = [...users];
+    const newStatus = u.status === 'active' ? 'disabled' : 'active';
     setUsers(current => current.map(x =>
-      x.id === u.id ? { ...x, is_active: !u.is_active } : x
+      x.id === u.id ? { ...x, status: newStatus } : x
     ));
     try {
-      await updateUser(u.id, { is_active: !u.is_active });
+      await updateUser(u.id, { status: newStatus });
     } catch {
       setUsers(prev); // rollback on failure
       alert('Failed to update user status. Please try again.');
@@ -66,7 +94,7 @@ export default function AdminUsersPage() {
 
   const stats = {
     total: users.length,
-    active: users.filter(u => u.is_active).length,
+    active: users.filter(u => u.status === 'active').length,
     admins: users.filter(u => u.userType.slug === 'admin').length,
   };
 
@@ -101,6 +129,14 @@ export default function AdminUsersPage() {
                 style={{ border: '1px solid #E2E8F0', width: 260, color: '#1a202c', backgroundColor: '#fff' }}
               />
             </div>
+            <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
+              style={{ border: '1px solid #E2E8F0', backgroundColor: '#fff', color: '#1B3A6C', cursor: 'pointer' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Import Users
+            </button>
             <Link
               href="/dashboard/admin/new"
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
@@ -134,7 +170,7 @@ export default function AdminUsersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
-                {['NAME', 'EMAIL', 'TYPE', 'STATUS', 'ACTIONS'].map(h => (
+                {['NAME', 'EMAIL', 'DEPARTMENT', 'TYPE', 'STATUS', 'ACTIONS'].map(h => (
                   <th key={h} className="text-left px-6 py-3 text-xs font-semibold tracking-wider" style={{ color: '#94A3B8' }}>{h}</th>
                 ))}
               </tr>
@@ -158,14 +194,23 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-6 py-4" style={{ color: '#4338CA' }}>{u.email}</td>
                     <td className="px-6 py-4">
+                      {u.department ? (
+                        <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
+                          {u.department.name}
+                        </span>
+                      ) : (
+                        <span className="text-xs" style={{ color: '#CBD5E1' }}>—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
                       <span className="px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: ts.bg, color: ts.color }}>
                         {u.userType.label}
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="flex items-center gap-1.5 w-fit px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: u.is_active ? '#F0FDF4' : '#F8FAFC', color: u.is_active ? '#16A34A' : '#94A3B8' }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: u.is_active ? '#22C55E' : '#CBD5E1', display: 'inline-block' }} />
-                        {u.is_active ? 'Active' : 'Inactive'}
+                      <span className="flex items-center gap-1.5 w-fit px-2.5 py-1 rounded-full text-xs font-medium" style={{ backgroundColor: u.status === 'active' ? '#F0FDF4' : '#F8FAFC', color: u.status === 'active' ? '#16A34A' : '#94A3B8' }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: u.status === 'active' ? '#22C55E' : '#CBD5E1', display: 'inline-block' }} />
+                        {u.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -176,7 +221,7 @@ export default function AdminUsersPage() {
                           <>
                             <Link href={`/dashboard/admin/${u.id}`} className="text-sm font-medium" style={{ color: '#1B3A6C' }}>Manage access</Link>
                             <button onClick={() => toggleActive(u)} className="text-xs" style={{ color: '#94A3B8' }}>
-                              {u.is_active ? 'Deactivate' : 'Activate'}
+                              {u.status === 'active' ? 'Deactivate' : 'Activate'}
                             </button>
                             {u.userType?.slug !== 'admin' && (
                               <button onClick={() => handleDelete(u)} className="text-xs" style={{ color: '#EF4444' }}>Delete</button>
@@ -197,6 +242,19 @@ export default function AdminUsersPage() {
           )}
         </div>
       </div>
+
+      {/* Bulk Import Modal */}
+      {showImport && (
+        <BulkImportModal
+          apps={apps}
+          departments={departments}
+          onClose={() => setShowImport(false)}
+          onSuccess={() => {
+            setShowImport(false);
+            getUsers().then(setUsers);
+          }}
+        />
+      )}
     </AdminLayout>
   );
 }

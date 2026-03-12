@@ -7,17 +7,22 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 import { UserType } from './user-type.entity';
 import { UserAppAccess } from './user-app-access.entity';
-import { UserClientOrgMapping } from './user-client-org-mapping.entity';
+import { ClientOrganization } from './client-organization.entity';
 import { Department } from './department.entity';
+
+export type UserStatus = 'active' | 'disabled' | 'deleted';
 
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  // email unique constraint already creates an index — explicit @Index for clarity
+  @Index()
   @Column({ unique: true })
   email: string;
 
@@ -35,8 +40,9 @@ export class User {
   @JoinColumn({ name: 'department_id' })
   department: Department | null;
 
-  @Column({ default: true })
-  is_active: boolean;
+  @Index()
+  @Column({ type: 'enum', enum: ['active', 'disabled', 'deleted'], default: 'active' })
+  status: UserStatus;
 
   @Column({ default: false })
   is_team_lead: boolean;
@@ -50,6 +56,7 @@ export class User {
   @OneToMany(() => UserAppAccess, (access) => access.user)
   appAccess: UserAppAccess[];
 
-  @OneToMany(() => UserClientOrgMapping, (mapping) => mapping.user)
-  clientOrgMappings: UserClientOrgMapping[];
+  @ManyToOne(() => ClientOrganization, { nullable: true, eager: true })
+  @JoinColumn({ name: 'organization_id' })
+  organization: ClientOrganization | null;
 }

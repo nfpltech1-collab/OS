@@ -2,10 +2,8 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  OneToMany,
   CreateDateColumn,
 } from 'typeorm';
-import { UserClientOrgMapping } from './user-client-org-mapping.entity';
 
 @Entity('client_organizations')
 export class ClientOrganization {
@@ -23,7 +21,4 @@ export class ClientOrganization {
 
   @CreateDateColumn()
   created_at: Date;
-
-  @OneToMany(() => UserClientOrgMapping, (mapping) => mapping.organization)
-  userMappings: UserClientOrgMapping[];
 }

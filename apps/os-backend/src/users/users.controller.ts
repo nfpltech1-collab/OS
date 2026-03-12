@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
+import { BulkCreateUserDto } from './dto/bulk-create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignAppAccessDto } from './dto/assign-app-access.dto';
 import { CreateFromAppDto } from './dto/create-from-app.dto';
@@ -49,24 +50,56 @@ export class UsersController {
   @Post('departments')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  createDepartment(@Body() body: { name: string }) {
-    return this.usersService.createDepartment(body.name);
+  createDepartment(@Body() body: { name: string }, @Request() req) {
+    return this.usersService.createDepartment(body.name, req.user.id);
   }
 
   // PATCH /users/departments/:id — admin only
   @Patch('departments/:id')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  updateDepartment(@Param('id') id: string, @Body() body: { name: string }) {
-    return this.usersService.updateDepartment(id, body.name);
+  updateDepartment(@Param('id') id: string, @Body() body: { name: string }, @Request() req) {
+    return this.usersService.updateDepartment(id, body.name, req.user.id);
   }
 
   // DELETE /users/departments/:id — admin only
   @Delete('departments/:id')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  deleteDepartment(@Param('id') id: string) {
-    return this.usersService.deleteDepartment(id);
+  deleteDepartment(@Param('id') id: string, @Request() req) {
+    return this.usersService.deleteDepartment(id, req.user.id);
+  }
+
+  // GET /users/departments/:id/default-apps — admin only
+  @Get('departments/:id/default-apps')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  getDepartmentDefaultApps(@Param('id') id: string) {
+    return this.usersService.getDepartmentDefaultApps(id);
+  }
+
+  // POST /users/departments/:id/default-apps — admin only
+  @Post('departments/:id/default-apps')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  addDepartmentDefaultApp(
+    @Param('id') departmentId: string,
+    @Body() body: { app_id: string },
+    @Request() req,
+  ) {
+    return this.usersService.addDepartmentDefaultApp(departmentId, body.app_id, req.user.id);
+  }
+
+  // DELETE /users/departments/:id/default-apps/:appId — admin only
+  @Delete('departments/:id/default-apps/:appId')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  removeDepartmentDefaultApp(
+    @Param('id') departmentId: string,
+    @Param('appId') appId: string,
+    @Request() req,
+  ) {
+    return this.usersService.removeDepartmentDefaultApp(departmentId, appId, req.user.id);
   }
 
   // GET /users/applications — any authenticated user
@@ -118,6 +151,14 @@ export class UsersController {
   @Roles('admin')
   create(@Body() dto: CreateUserDto, @Request() req) {
     return this.usersService.create(dto, req.user.id);
+  }
+
+  // POST /users/bulk — admin only
+  @Post('bulk')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  createBulk(@Body() dto: BulkCreateUserDto, @Request() req) {
+    return this.usersService.createBulk(dto, req.user.id);
   }
 
   // PATCH /users/:id — admin only

@@ -159,7 +159,7 @@ export class AuthService {
     }
 
     // Load app access for this user + app
-    const access = await this.accessRepo.findOne({
+    let access = await this.accessRepo.findOne({
       where: {
         user: { id: user.id },
         application: { slug: appSlug },
@@ -167,6 +167,13 @@ export class AuthService {
       },
       relations: ['application'],
     });
+
+    // Admin users get implicit access to all apps
+    if (!access && user.userType?.slug === 'admin') {
+      access = {
+        is_app_admin: true,
+      } as any;
+    }
 
     if (!access) {
       return { valid: false, reason: 'no_app_access' };

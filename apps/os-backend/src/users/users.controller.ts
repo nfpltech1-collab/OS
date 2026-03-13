@@ -204,5 +204,13 @@ export class UsersController {
   createFromApp(@Body() dto: CreateFromAppDto) {
     return this.usersService.createFromApp(dto);
   }
+
+  // POST /users/sync-all — admin only
+  @Post('sync-all')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  syncAll(@Request() req) {
+    return this.usersService.syncAll(req.user.id);
+  }
 }
 

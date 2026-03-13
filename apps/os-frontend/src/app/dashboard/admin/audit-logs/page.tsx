@@ -1,53 +1,87 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { getAuditLogs, AuditLogEntry } from '@/lib/api';
+import { getAuditLogs, AuditLogEntry, getUsers, getDepartments } from '@/lib/api';
 import AdminLayout from '@/components/AdminLayout';
 
 const PAGE_SIZE = 50;
 
-const ACTION_STYLE: Record<string, { bg: string; color: string }> = {
-  'user.created':                   { bg: '#F0FDF4', color: '#16A34A' },
-  'user.updated':                   { bg: '#EFF6FF', color: '#2563EB' },
-  'user.status.changed':            { bg: '#FFF7ED', color: '#EA580C' },
-  'user.deleted':                   { bg: '#FEF2F2', color: '#DC2626' },
-  'app_access.granted':             { bg: '#F0FDF4', color: '#16A34A' },
-  'app_access.revoked':             { bg: '#FFF7ED', color: '#EA580C' },
-  'department.created':             { bg: '#F0FDF4', color: '#16A34A' },
-  'department.updated':             { bg: '#EFF6FF', color: '#2563EB' },
-  'department.deleted':             { bg: '#FEF2F2', color: '#DC2626' },
-  'department.default_app.added':   { bg: '#EFF6FF', color: '#2563EB' },
-  'department.default_app.removed': { bg: '#FFF7ED', color: '#EA580C' },
+const ACTION_MAP: Record<string, { label: string; bg: string; color: string }> = {
+  'user.created':                   { label: 'User Created', bg: '#F0FDF4', color: '#16A34A' },
+  'user.updated':                   { label: 'User Updated', bg: '#EFF6FF', color: '#2563EB' },
+  'user.status.changed':            { label: 'Status Changed', bg: '#FFF7ED', color: '#EA580C' },
+  'user.deleted':                   { label: 'User Deleted', bg: '#FEF2F2', color: '#DC2626' },
+  'app_access.granted':             { label: 'Access Granted', bg: '#F0FDF4', color: '#16A34A' },
+  'app_access.revoked':             { label: 'Access Revoked', bg: '#FEF2F2', color: '#DC2626' },
+  'department.created':             { label: 'Dept Created', bg: '#F0FDF4', color: '#16A34A' },
+  'department.updated':             { label: 'Dept Updated', bg: '#EFF6FF', color: '#2563EB' },
+  'department.deleted':             { label: 'Dept Deleted', bg: '#FEF2F2', color: '#DC2626' },
+  'department.default_app.added':   { label: 'App Added', bg: '#F0FDF4', color: '#16A34A' },
+  'department.default_app.removed': { label: 'App Removed', bg: '#FFF7ED', color: '#EA580C' },
 };
 
 function ActionBadge({ action }: { action: string }) {
-  const style = ACTION_STYLE[action] ?? { bg: '#F1F5F9', color: '#475569' };
+  const config = ACTION_MAP[action] ?? { label: action, bg: '#F1F5F9', color: '#475569' };
   return (
     <span
-      className="inline-block px-2 py-0.5 rounded text-xs font-mono font-medium"
-      style={{ backgroundColor: style.bg, color: style.color }}
+      className="inline-block px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold"
+      style={{ backgroundColor: config.bg, color: config.color }}
     >
-      {action}
+      {config.label}
     </span>
   );
 }
 
-function JsonPreview({ value }: { value: Record<string, unknown> | null }) {
-  if (!value || Object.keys(value).length === 0) return <span style={{ color: '#CBD5E1' }}>—</span>;
+function HumanizedChanges({ before, after }: { before: any; after: any }) {
+  const hasBefore = before && Object.keys(before).length > 0;
+  const hasAfter = after && Object.keys(after).length > 0;
+
+  if (!hasBefore && !hasAfter) return <span className="text-slate-300">—</span>;
+
+  // For updates, we only want to show the specific fields that changed
+  if (hasBefore && hasAfter) {
+    const changes = Object.keys(after).filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
+    return (
+      <div className="flex flex-wrap gap-2 text-[11px]">
+        {changes.map(k => {
+            const bValue = before[k];
+            const aValue = after[k];
+            // Format boolean to string for readability
+            const formatVal = (v: any) => v === true ? 'Yes' : v === false ? 'No' : String(v);
+            
+            return (
+                <div key={k} className="bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
+                    <span className="font-bold text-slate-400 lowercase mr-1.5">{k.replace(/_/g, ' ')}:</span>
+                    <span className="text-slate-400 line-through mr-1">{formatVal(bValue)}</span>
+                    <span className="text-blue-600 font-semibold">{formatVal(aValue)}</span>
+                </div>
+            )
+        })}
+      </div>
+    );
+  }
+
+  // For creation or pure data display
+  const obj = after || before;
   return (
-    <code className="text-xs break-all" style={{ color: '#64748B' }}>
-      {JSON.stringify(value)}
-    </code>
+    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+      {Object.entries(obj).map(([k, v]) => (
+        <span key={k} className="inline-flex gap-1.5 items-center">
+          <span className="font-bold text-slate-400 lowercase">{k.replace(/_/g, ' ')}:</span>
+          <span className="text-slate-600 font-medium">{v === true ? 'Yes' : v === false ? 'No' : String(v)}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
 function formatDate(iso: string) {
   const d = new Date(iso);
   return d.toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit',
     hour12: false,
   });
 }
@@ -62,6 +96,12 @@ export default function AuditLogsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
+
+  const [users, setUsers] = useState<any[]>([]);
+  const [depts, setDepts] = useState<any[]>([]);
+
+  const userMap = useMemo(() => new Map(users.map(u => [u.id, u.name || u.email])), [users]);
+  const deptMap = useMemo(() => new Map(depts.map(d => [d.id, d.name])), [depts]);
 
   const [filterEntity, setFilterEntity] = useState('');
   const [filterEntityId, setFilterEntityId] = useState('');
@@ -85,8 +125,20 @@ export default function AuditLogsPage() {
 
   useEffect(() => {
     if (user && user.user_type !== 'admin') { router.push('/dashboard'); return; }
+    
+    // Fetch lookups
+    getUsers().then(setUsers).catch(() => {});
+    getDepartments().then(setDepts).catch(() => {});
+
     load(0, filterEntity, filterEntityId);
   }, [user]);
+
+  function getEntityDisplayName(type: string | null, id: string | null) {
+      if (!id) return '—';
+      if (type === 'user') return userMap.get(id) || id.slice(0, 8) + '…';
+      if (type === 'department') return deptMap.get(id) || id.slice(0, 8) + '…';
+      return id.slice(0, 8) + '…';
+  }
 
   function applyFilters() {
     const id = entityIdInput.trim();
@@ -136,25 +188,25 @@ export default function AuditLogsPage() {
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-5 items-end">
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Entity type</label>
+            <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Category</label>
             <select
               value={filterEntity}
               onChange={e => setFilterEntity(e.target.value)}
               className="text-sm rounded-lg border px-3 py-2 bg-white outline-none"
               style={{ borderColor: '#E2E8F0', color: '#1a202c', minWidth: 140 }}
             >
-              <option value="">All types</option>
+              <option value="">All Categories</option>
               {ENTITY_TYPES.filter(Boolean).map(t => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t} className="capitalize">{t}</option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Entity ID</label>
+            <label className="block text-xs font-medium mb-1" style={{ color: '#64748B' }}>Item ID</label>
             <input
               type="text"
-              placeholder="UUID…"
+              placeholder="Paste ID here…"
               value={entityIdInput}
               onChange={e => setEntityIdInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && applyFilters()}
@@ -196,7 +248,7 @@ export default function AuditLogsPage() {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}>
-                  {['Timestamp', 'Action', 'Entity', 'Entity ID', 'Actor ID', 'Before → After'].map(h => (
+                  {['Timestamp', 'Action', 'Category', 'Modified Item', 'Performed By', 'Detailed Changes'].map(h => (
                     <th
                       key={h}
                       className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"
@@ -221,25 +273,21 @@ export default function AuditLogsPage() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <ActionBadge action={row.action} />
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs font-mono" style={{ color: '#475569' }}>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs capitalize font-medium" style={{ color: '#475569' }}>
                       {row.entity_type ?? '—'}
                     </td>
-                    <td className="px-4 py-3 max-w-[160px]">
-                      <span className="font-mono text-xs truncate block" style={{ color: '#94A3B8' }} title={row.entity_id ?? ''}>
-                        {row.entity_id ? row.entity_id.slice(0, 8) + '…' : '—'}
+                    <td className="px-4 py-3 max-w-[200px]">
+                      <span className="text-xs font-semibold truncate block text-slate-700" title={row.entity_id ?? ''}>
+                        {getEntityDisplayName(row.entity_type, row.entity_id)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 max-w-[160px]">
-                      <span className="font-mono text-xs truncate block" style={{ color: '#94A3B8' }} title={row.actor_id}>
-                        {row.actor_id.slice(0, 8) + '…'}
+                    <td className="px-4 py-3 max-w-[180px]">
+                      <span className="text-xs truncate block text-slate-500 font-medium" title={row.actor_id}>
+                        {userMap.get(row.actor_id) || row.actor_id.slice(0, 8) + '…'}
                       </span>
                     </td>
-                    <td className="px-4 py-3 max-w-[300px]">
-                      <div className="flex flex-col gap-0.5">
-                        {row.before && <JsonPreview value={row.before} />}
-                        {row.after  && <JsonPreview value={row.after} />}
-                        {!row.before && !row.after && <span style={{ color: '#CBD5E1' }}>—</span>}
-                      </div>
+                    <td className="px-4 py-3">
+                      <HumanizedChanges before={row.before} after={row.after} />
                     </td>
                   </tr>
                 ))}

@@ -778,4 +778,27 @@ export class UsersService {
 
     return { results, errors };
   }
+
+  // ─── Broadcast all data to apps ──────────────────────────────────
+  async syncAll(actorId: string) {
+    const departments = await this.deptRepo.find({ where: { status: 'active' } });
+    
+    for (const d of departments) {
+      await this.webhookService.broadcastDepartment('department.created', {
+        department_id: d.id,
+        department_slug: d.slug,
+        department_name: d.name,
+      });
+    }
+
+    this.auditLog.log({
+      actor_id: actorId,
+      action: 'system.sync_all',
+      entity_type: 'system',
+      entity_id: 'global',
+      after: { department_count: departments.length },
+    }).catch(() => {});
+
+    return { message: 'Sync broadcast initiated', departments: departments.length };
+  }
 }

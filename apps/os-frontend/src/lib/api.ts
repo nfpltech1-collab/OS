@@ -261,3 +261,8 @@ export async function getAuditLogs(params?: {
   const res = await api.get('/audit-logs', { params });
   return res.data as { total: number; rows: AuditLogEntry[] };
 }
+
+export async function syncAllApps() {
+  const res = await api.post('/users/sync-all');
+  return res.data;
+}

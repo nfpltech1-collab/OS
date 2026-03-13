@@ -3,7 +3,16 @@
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
+import { syncAllApps } from '@/lib/api';
 
+function IconRefresh() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+    </svg>
+  );
+}
 function IconGrid() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -81,6 +90,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const isAdmin = user?.user_type === 'admin';
+  const [syncing, setSyncing] = useState(false);
+
+  async function handleSync() {
+    try {
+      setSyncing(true);
+      const res = await syncAllApps();
+      alert(`Success: Data pushed to all apps! ${res.departments} departments synced.`);
+    } catch (err) {
+      alert('Failed to broadcast sync. Check network logs.');
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: '#F8FAFC' }}>
@@ -128,11 +150,29 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Topbar */}
         <header
-          className="flex items-center justify-end gap-3 px-8 bg-white border-b shrink-0 sticky top-0"
+          className="flex items-center justify-end gap-5 px-8 bg-white border-b shrink-0 sticky top-0"
           style={{ height: HEADER_H, borderColor: '#E2E8F0', zIndex: 30 }}
         >
+          {isAdmin && (
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border shadow-sm disabled:opacity-50"
+              style={{
+                backgroundColor: syncing ? '#F8FAFC' : '#fff',
+                borderColor: '#E2E8F0',
+                color: '#475569'
+              }}
+            >
+              <div className={syncing ? 'animate-spin' : ''} style={{ color: '#4338CA' }}>
+                <IconRefresh />
+              </div>
+              {syncing ? 'Pushing Data...' : 'Sync All Apps'}
+            </button>
+          )}
+
           {user && (
-            <>
+            <div className="flex items-center gap-3">
               <div className="text-right">
                 <p className="text-sm font-semibold leading-tight" style={{ color: '#1a202c' }}>{user.name}</p>
                 <p className="text-xs leading-tight" style={{ color: '#94A3B8' }}>{ROLE_LABEL[user.user_type] ?? 'User'}</p>
@@ -149,7 +189,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               >
                 Sign out
               </button>
-            </>
+            </div>
           )}
         </header>
 

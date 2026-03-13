@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -9,16 +7,16 @@ import AdminLayout from '@/components/AdminLayout';
 const PAGE_SIZE = 50;
 
 const ACTION_MAP: Record<string, { label: string; bg: string; color: string }> = {
-  'user.created':                   { label: 'User Created', bg: '#F0FDF4', color: '#16A34A' },
-  'user.updated':                   { label: 'User Updated', bg: '#EFF6FF', color: '#2563EB' },
-  'user.status.changed':            { label: 'Status Changed', bg: '#FFF7ED', color: '#EA580C' },
-  'user.deleted':                   { label: 'User Deleted', bg: '#FEF2F2', color: '#DC2626' },
-  'app_access.granted':             { label: 'Access Granted', bg: '#F0FDF4', color: '#16A34A' },
-  'app_access.revoked':             { label: 'Access Revoked', bg: '#FEF2F2', color: '#DC2626' },
-  'department.created':             { label: 'Dept Created', bg: '#F0FDF4', color: '#16A34A' },
-  'department.updated':             { label: 'Dept Updated', bg: '#EFF6FF', color: '#2563EB' },
-  'department.deleted':             { label: 'Dept Deleted', bg: '#FEF2F2', color: '#DC2626' },
-  'department.default_app.added':   { label: 'App Added', bg: '#F0FDF4', color: '#16A34A' },
+  'user.created': { label: 'User Created', bg: '#F0FDF4', color: '#16A34A' },
+  'user.updated': { label: 'User Updated', bg: '#EFF6FF', color: '#2563EB' },
+  'user.status.changed': { label: 'Status Changed', bg: '#FFF7ED', color: '#EA580C' },
+  'user.deleted': { label: 'User Deleted', bg: '#FEF2F2', color: '#DC2626' },
+  'app_access.granted': { label: 'Access Granted', bg: '#F0FDF4', color: '#16A34A' },
+  'app_access.revoked': { label: 'Access Revoked', bg: '#FEF2F2', color: '#DC2626' },
+  'department.created': { label: 'Dept Created', bg: '#F0FDF4', color: '#16A34A' },
+  'department.updated': { label: 'Dept Updated', bg: '#EFF6FF', color: '#2563EB' },
+  'department.deleted': { label: 'Dept Deleted', bg: '#FEF2F2', color: '#DC2626' },
+  'department.default_app.added': { label: 'App Added', bg: '#F0FDF4', color: '#16A34A' },
   'department.default_app.removed': { label: 'App Removed', bg: '#FFF7ED', color: '#EA580C' },
 };
 
@@ -46,18 +44,18 @@ function HumanizedChanges({ before, after }: { before: any; after: any }) {
     return (
       <div className="flex flex-wrap gap-2 text-[11px]">
         {changes.map(k => {
-            const bValue = before[k];
-            const aValue = after[k];
-            // Format boolean to string for readability
-            const formatVal = (v: any) => v === true ? 'Yes' : v === false ? 'No' : String(v);
-            
-            return (
-                <div key={k} className="bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
-                    <span className="font-bold text-slate-400 lowercase mr-1.5">{k.replace(/_/g, ' ')}:</span>
-                    <span className="text-slate-400 line-through mr-1">{formatVal(bValue)}</span>
-                    <span className="text-blue-600 font-semibold">{formatVal(aValue)}</span>
-                </div>
-            )
+          const bValue = before[k];
+          const aValue = after[k];
+          // Format boolean to string for readability
+          const formatVal = (v: any) => v === true ? 'Yes' : v === false ? 'No' : String(v);
+
+          return (
+            <div key={k} className="bg-slate-50 border border-slate-100 px-2 py-0.5 rounded-md">
+              <span className="font-bold text-slate-400 lowercase mr-1.5">{k.replace(/_/g, ' ')}:</span>
+              <span className="text-slate-400 line-through mr-1">{formatVal(bValue)}</span>
+              <span className="text-blue-600 font-semibold">{formatVal(aValue)}</span>
+            </div>
+          )
         })}
       </div>
     );
@@ -125,19 +123,19 @@ export default function AuditLogsPage() {
 
   useEffect(() => {
     if (user && user.user_type !== 'admin') { router.push('/dashboard'); return; }
-    
+
     // Fetch lookups
-    getUsers().then(setUsers).catch(() => {});
-    getDepartments().then(setDepts).catch(() => {});
+    getUsers().then(setUsers).catch(() => { });
+    getDepartments().then(setDepts).catch(() => { });
 
     load(0, filterEntity, filterEntityId);
   }, [user]);
 
   function getEntityDisplayName(type: string | null, id: string | null) {
-      if (!id) return '—';
-      if (type === 'user') return userMap.get(id) || id.slice(0, 8) + '…';
-      if (type === 'department') return deptMap.get(id) || id.slice(0, 8) + '…';
-      return id.slice(0, 8) + '…';
+    if (!id) return '—';
+    if (type === 'user') return userMap.get(id) || id.slice(0, 8) + '…';
+    if (type === 'department') return deptMap.get(id) || id.slice(0, 8) + '…';
+    return id.slice(0, 8) + '…';
   }
 
   function applyFilters() {

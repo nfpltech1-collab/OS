@@ -149,14 +149,13 @@ export class InitialSchema0000000000001 implements MigrationInterface {
     // ── sso_tokens ─────────────────────────────────────────────────────────
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "sso_tokens" (
-        "id"         uuid    NOT NULL DEFAULT uuid_generate_v4(),
-        "token_id"   uuid    NOT NULL,
-        "user_id"    uuid    NOT NULL,
-        "app_slug"   varchar NOT NULL,
-        "used"       boolean NOT NULL DEFAULT false,
+        "token_id"   uuid      NOT NULL,
+        "user_id"    uuid      NOT NULL,
+        "app_slug"   varchar   NOT NULL,
+        "used"       boolean   NOT NULL DEFAULT false,
         "expires_at" TIMESTAMP NOT NULL,
-        CONSTRAINT "PK_sso_tokens"      PRIMARY KEY ("id"),
-        CONSTRAINT "UQ_sso_tokens_token_id" UNIQUE ("token_id")
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        CONSTRAINT "PK_sso_tokens" PRIMARY KEY ("token_id")
       )
     `);
 

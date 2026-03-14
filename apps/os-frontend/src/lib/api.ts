@@ -1,47 +1,47 @@
-import axios, { InternalAxiosRequestConfig } from 'axios';
+import axios from 'axios';
 
-const normalizeBase = (raw?: string) => {
-  if (!raw) return '';
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  return trimmed.replace(/\/+$/, '');
-};
+// const normalizeBase = (raw?: string) => {
+//   if (!raw) return '';
+//   const trimmed = raw.trim();
+//   if (!trimmed) return '';
+//   return trimmed.replace(/\/+$/, '');
+// };
 
-const directBackendBase =
-  normalizeBase(process.env.NEXT_PUBLIC_OS_BACKEND_URL) || 'http://localhost:3001';
+// const directBackendBase =
+//   normalizeBase(process.env.NEXT_PUBLIC_OS_BACKEND_URL) || 'http://localhost:3001';
 
-type RetryableRequestConfig = InternalAxiosRequestConfig & {
-  __retryDirectBackend?: boolean;
-};
+// type RetryableRequestConfig = InternalAxiosRequestConfig & {
+//   __retryDirectBackend?: boolean;
+// };
 
 const api = axios.create({
   baseURL: '/api',
   withCredentials: true, // send httpOnly cookie on every request
 });
 
-api.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const config = error?.config as RetryableRequestConfig | undefined;
-    const status = error?.response?.status;
-    const shouldRetryDirect =
-      !!config &&
-      !config.__retryDirectBackend &&
-      (status === 500 || !error.response);
+// api.interceptors.response.use(
+//   (response) => response,
+//   async (error) => {
+//     const config = error?.config as RetryableRequestConfig | undefined;
+//     const status = error?.response?.status;
+//     const shouldRetryDirect =
+//       !!config &&
+//       !config.__retryDirectBackend &&
+//       (status === 500 || !error.response);
 
-    if (!shouldRetryDirect) {
-      return Promise.reject(error);
-    }
+//     if (!shouldRetryDirect) {
+//       return Promise.reject(error);
+//     }
 
-    config.__retryDirectBackend = true;
-    config.baseURL = directBackendBase;
-    if (typeof config.url === 'string' && config.url.startsWith('/api/')) {
-      config.url = config.url.replace(/^\/api/, '');
-    }
+//     config.__retryDirectBackend = true;
+//     config.baseURL = directBackendBase;
+//     if (typeof config.url === 'string' && config.url.startsWith('/api/')) {
+//       config.url = config.url.replace(/^\/api/, '');
+//     }
 
-    return axios.request(config);
-  },
-);
+//     return axios.request(config);
+//   },
+// );
 
 export default api;
 
